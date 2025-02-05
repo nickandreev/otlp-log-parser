@@ -23,21 +23,21 @@ func NewLogsServiceServer(agg aggregator.Aggregator, attributeName string) *logs
 func (s *logsServiceServer) Export(ctx context.Context, req *collogspb.ExportLogsServiceRequest) (*collogspb.ExportLogsServiceResponse, error) {
 	// Walk through resource attributes, scope attributes, and log records.
 	// Add to the aggregator for each attribute that matches the attribute name.
-	for _, rl := range req.GetResourceLogs() {
-		for _, attr := range rl.GetResource().GetAttributes() {
+	for _, resourceLogs := range req.GetResourceLogs() {
+		for _, attr := range resourceLogs.GetResource().GetAttributes() {
 			if attr.GetKey() == s.attributeName {
 				s.agg.AddToKey(attr.GetValue().GetStringValue(), 1)
 			}
 		}
 
-		for _, ill := range rl.GetScopeLogs() {
-			for _, attrName := range ill.GetScope().GetAttributes() {
+		for _, scopeLogs := range resourceLogs.GetScopeLogs() {
+			for _, attrName := range scopeLogs.GetScope().GetAttributes() {
 				if attrName.GetKey() == s.attributeName {
 					s.agg.AddToKey(attrName.GetValue().GetStringValue(), 1)
 				}
 			}
-			for _, lr := range ill.GetLogRecords() {
-				for _, attrName := range lr.GetAttributes() {
+			for _, logRecord := range scopeLogs.GetLogRecords() {
+				for _, attrName := range logRecord.GetAttributes() {
 					if attrName.GetKey() == s.attributeName {
 						s.agg.AddToKey(attrName.GetValue().GetStringValue(), 1)
 					}
