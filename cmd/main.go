@@ -114,11 +114,11 @@ func main() {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
+				snapshot := agg.SnapshotAndReset()
 				logger.Info("aggregated values",
 					zap.String("attribute", *attributeKey),
-					zap.Any("values", agg.Snapshot()))
+					zap.Any("values", snapshot))
 				printCounter.Add(ctx, 1)
-				agg.ResetAll()
 			}
 		}
 	}()

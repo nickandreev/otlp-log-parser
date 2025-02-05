@@ -6,8 +6,7 @@ import (
 
 type Aggregator interface {
 	AddToKey(key string, val int)
-	ResetAll()
-	Snapshot() map[string]int
+	SnapshotAndReset() map[string]int
 }
 
 type simpleSyncCounterAggregator struct {
@@ -28,18 +27,18 @@ func (a *simpleSyncCounterAggregator) AddToKey(key string, val int) {
 	a.values[key] += val
 }
 
-func (a *simpleSyncCounterAggregator) Snapshot() map[string]int {
+func (a *simpleSyncCounterAggregator) SnapshotAndReset() map[string]int {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+
 	snapshot := make(map[string]int, len(a.values))
 	for k, v := range a.values {
 		snapshot[k] = v
 	}
+
+	// Reset the values map while still holding the lock
+	a.values = make(map[string]int)
+
 	return snapshot
 }
 
-func (a *simpleSyncCounterAggregator) ResetAll() {
-	a.mu.Lock()
-	a.values = make(map[string]int)
-	a.mu.Unlock()
-}

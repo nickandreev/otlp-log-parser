@@ -135,7 +135,7 @@ func TestLogsServiceServer_Export(t *testing.T) {
 			_, err := srv.Export(context.Background(), req)
 			require.NoError(t, err)
 
-			counts := agg.Snapshot()
+			counts := agg.SnapshotAndReset()
 			assert.Equal(t, tt.expectedCounts, counts)
 		})
 	}

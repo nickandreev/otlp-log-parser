@@ -66,30 +66,40 @@ func TestSimpleAggregator_AddToKey(t *testing.T) {
 			for _, add := range tt.adds {
 				agg.AddToKey(add.key, add.value)
 			}
-			assert.Equal(t, tt.expected, agg.Snapshot())
+			snapshot := agg.SnapshotAndReset()
+			assert.Equal(t, tt.expected, snapshot)
+
+			// Verify reset happened
+			emptySnapshot := agg.SnapshotAndReset()
+			assert.Empty(t, emptySnapshot)
 		})
 	}
 }
 
-func TestSimpleAggregator_ResetAll(t *testing.T) {
+func TestSimpleAggregator_SnapshotAndReset(t *testing.T) {
 	agg := NewSimpleSyncCounterAggregator()
 
 	// Add some values
 	agg.AddToKey("foo", 1)
 	agg.AddToKey("bar", 2)
 
-	// Verify values were added
-	snapshot := agg.Snapshot()
-	assert.Equal(t, 1, snapshot["foo"])
-	assert.Equal(t, 2, snapshot["bar"])
+	// Take snapshot and reset
+	snapshot := agg.SnapshotAndReset()
+	assert.Equal(t, map[string]int{
+		"foo": 1,
+		"bar": 2,
+	}, snapshot)
 
-	// Reset all values
-	agg.ResetAll()
+	// Verify values were reset
+	emptySnapshot := agg.SnapshotAndReset()
+	assert.Empty(t, emptySnapshot)
 
-	// Verify all values are zero
-	snapshot = agg.Snapshot()
-	assert.Equal(t, 0, snapshot["foo"])
-	assert.Equal(t, 0, snapshot["bar"])
+	// Add new values after reset
+	agg.AddToKey("baz", 3)
+	newSnapshot := agg.SnapshotAndReset()
+	assert.Equal(t, map[string]int{
+		"baz": 3,
+	}, newSnapshot)
 }
 
 func TestSimpleAggregator_Concurrent(t *testing.T) {
@@ -108,29 +118,36 @@ func TestSimpleAggregator_Concurrent(t *testing.T) {
 	wg.Wait()
 
 	// Verify the final count
-	snapshot := agg.Snapshot()
+	snapshot := agg.SnapshotAndReset()
 	assert.Equal(t, 100, snapshot["concurrent"])
 }
 
-func TestSimpleAggregator_Snapshot(t *testing.T) {
+func TestSimpleAggregator_ConcurrentSnapshotAndReset(t *testing.T) {
 	agg := NewSimpleSyncCounterAggregator()
+	var wg sync.WaitGroup
 
-	// Add initial values
-	agg.AddToKey("foo", 1)
-	agg.AddToKey("bar", 2)
+	// Start goroutine to continuously add values
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 1000; i++ {
+			agg.AddToKey("key", 1)
+		}
+	}()
 
-	// Take snapshot
-	snapshot1 := agg.Snapshot()
+	// Take snapshots while values are being added
+	var totalCount int
+	for i := 0; i < 10; i++ {
+		snapshot := agg.SnapshotAndReset()
+		totalCount += snapshot["key"]
+	}
 
-	// Modify aggregator after snapshot
-	agg.AddToKey("foo", 10)
+	wg.Wait()
 
-	// Verify snapshot remains unchanged
-	assert.Equal(t, 1, snapshot1["foo"])
-	assert.Equal(t, 2, snapshot1["bar"])
+	// One final snapshot to get any remaining values
+	finalSnapshot := agg.SnapshotAndReset()
+	totalCount += finalSnapshot["key"]
 
-	// Verify aggregator has new values
-	snapshot2 := agg.Snapshot()
-	assert.Equal(t, 11, snapshot2["foo"])
-	assert.Equal(t, 2, snapshot2["bar"])
+	// Verify we counted all 1000 additions
+	assert.Equal(t, 1000, totalCount)
 }
