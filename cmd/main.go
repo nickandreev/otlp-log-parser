@@ -48,7 +48,6 @@ func setupOTel() (*prometheus.Exporter, http.Handler, error) {
 }
 
 func main() {
-	// Command line flags.
 	listenAddr := flag.String("listen", ":4317", "The address to listen on for gRPC requests")
 	attributeKey := flag.String("attribute", "foo", "The attribute key to aggregate on")
 	windowDuration := flag.Duration("window", 10*time.Second, "The duration of the aggregation window")

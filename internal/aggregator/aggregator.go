@@ -15,6 +15,7 @@ type simpleSyncCounterAggregator struct {
 	values map[string]int
 }
 
+// NewSimpleSyncCounterAggregator creates a new simple counter aggregator that is thread-safe
 func NewSimpleSyncCounterAggregator() Aggregator {
 	return &simpleSyncCounterAggregator{
 		values: make(map[string]int),

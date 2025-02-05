@@ -39,7 +39,7 @@ func interceptorLogger(l *zap.Logger) logging.Logger {
 			zapFields = append(zapFields, zap.Any(key, fields[i+1]))
 		}
 
-		// Always log as warn level. Idea for improvement: make this configurable.
+		// Always log warn level only. Idea for improvement: make this configurable.
 		if lvl >= logging.LevelWarn {
 			l.Log(zap.WarnLevel, msg, zapFields...)
 		}
