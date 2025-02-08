@@ -5,6 +5,7 @@ import (
 
 	"github.com/nickandreev/otlp-log-parser/internal/aggregator"
 	collogspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
+	v1 "go.opentelemetry.io/proto/otlp/common/v1"
 )
 
 type logsServiceServer struct {
@@ -21,29 +22,49 @@ func NewLogsServiceServer(agg aggregator.Aggregator, attributeName string) *logs
 }
 
 func (s *logsServiceServer) Export(ctx context.Context, req *collogspb.ExportLogsServiceRequest) (*collogspb.ExportLogsServiceResponse, error) {
-	// Walk through resource attributes, scope attributes, and log records.
-	// Add to the aggregator for each attribute that matches the attribute name.
+	// a map to store the found attributes values
+	found := map[string]struct{}{}
+
+	// walk through resource attributes, scope attributes, and log records
 	for _, resourceLogs := range req.GetResourceLogs() {
-		for _, attr := range resourceLogs.GetResource().GetAttributes() {
-			if attr.GetKey() == s.attributeName {
-				s.agg.AddToKey(attr.GetValue().GetStringValue(), 1)
+		if res := resourceLogs.GetResource(); res != nil {
+			if attr, ok := findAttribute(res.GetAttributes(), s.attributeName); ok {
+				found[attr] = struct{}{}
 			}
 		}
 
 		for _, scopeLogs := range resourceLogs.GetScopeLogs() {
-			for _, attrName := range scopeLogs.GetScope().GetAttributes() {
-				if attrName.GetKey() == s.attributeName {
-					s.agg.AddToKey(attrName.GetValue().GetStringValue(), 1)
+			if scope := scopeLogs.GetScope(); scope != nil {
+				if attr, ok := findAttribute(scope.GetAttributes(), s.attributeName); ok {
+					found[attr] = struct{}{}
 				}
 			}
 			for _, logRecord := range scopeLogs.GetLogRecords() {
-				for _, attrName := range logRecord.GetAttributes() {
-					if attrName.GetKey() == s.attributeName {
-						s.agg.AddToKey(attrName.GetValue().GetStringValue(), 1)
-					}
+				if attr, ok := findAttribute(logRecord.GetAttributes(), s.attributeName); ok {
+					found[attr] = struct{}{}
 				}
 			}
 		}
 	}
+
+	for k := range found {
+		s.agg.AddToKey(k, 1)
+	}
+
+	if len(found) == 0 {
+		s.agg.AddToKey("unknown", 1)
+	}
+
 	return &collogspb.ExportLogsServiceResponse{}, nil
+}
+
+func findAttribute(attrs []*v1.KeyValue, attributeName string) (string, bool) {
+	for _, attr := range attrs {
+		if attr.GetKey() == attributeName {
+			if attr.GetValue() != nil {
+				return attr.GetValue().GetStringValue(), true
+			}
+		}
+	}
+	return "", false
 }

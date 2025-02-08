@@ -19,8 +19,8 @@ import (
 func main() {
 	serverAddr := flag.String("server", "localhost:4317", "Server address")
 	attributeKey := flag.String("attribute", "foo", "Attribute key to send")
-	duration := flag.Duration("duration", 30*time.Second, "How long to run the test")
-	concurrency := flag.Int("concurrency", 5, "Number of concurrent clients")
+	duration := flag.Duration("duration", 10*time.Second, "How long to run the test")
+	concurrency := flag.Int("concurrency", 2, "Number of concurrent clients")
 	flag.Parse()
 
 	ctx, cancel := context.WithTimeout(context.Background(), *duration)
@@ -50,40 +50,9 @@ func main() {
 			var sent int64
 
 			for ctx.Err() == nil {
-				req := &collogspb.ExportLogsServiceRequest{
-					ResourceLogs: []*logspb.ResourceLogs{
-						{
-							Resource: &resourcepb.Resource{
-								Attributes: []*commonpb.KeyValue{
-									{
-										Key: *attributeKey,
-										Value: &commonpb.AnyValue{
-											Value: &commonpb.AnyValue_StringValue{
-												StringValue: testValues[int(sent)%len(testValues)],
-											},
-										},
-									},
-								},
-							},
-							ScopeLogs: []*logspb.ScopeLogs{
-								{
-									LogRecords: []*logspb.LogRecord{
-										{
-											TimeUnixNano: uint64(time.Now().UnixNano()),
-											Body: &commonpb.AnyValue{
-												Value: &commonpb.AnyValue_StringValue{
-													StringValue: "test log message",
-												},
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-				}
+				req := getExportLogsServiceRequest(*attributeKey, testValues[int(sent)%len(testValues)])
 
-				exportCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				exportCtx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 				if _, err := client.Export(exportCtx, req); err != nil {
 					log.Printf("Client %d failed to send request: %v", clientID, err)
 					cancel()
@@ -91,8 +60,8 @@ func main() {
 				}
 				cancel()
 				sent++
-				atomic.AddInt64(&totalSent, 1)
 			}
+			atomic.AddInt64(&totalSent, sent)
 			log.Printf("Client %d finished, sent %d requests", clientID, sent)
 		}(i)
 	}
@@ -103,4 +72,26 @@ func main() {
 	total := atomic.LoadInt64(&totalSent)
 	rps := float64(total) / elapsed.Seconds()
 	log.Printf("Test completed. Total requests: %d, Duration: %v, Throughput: %.0f RPS", total, elapsed, rps)
+}
+
+func getExportLogsServiceRequest(attributeKey string, attributeValue string) *collogspb.ExportLogsServiceRequest {
+	req := &collogspb.ExportLogsServiceRequest{
+		ResourceLogs: []*logspb.ResourceLogs{
+			{
+				Resource: &resourcepb.Resource{
+					Attributes: []*commonpb.KeyValue{
+						{
+							Key: attributeKey,
+							Value: &commonpb.AnyValue{
+								Value: &commonpb.AnyValue_StringValue{
+									StringValue: attributeValue,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	return req
 }

@@ -99,7 +99,23 @@ func TestLogsServiceServer_Export(t *testing.T) {
 			},
 		},
 		{
-			name:         "attribute found in multiple places",
+			name:         "duplicate attribute values are counted once",
+			attributeKey: "foo",
+			resourceAttrs: map[string]string{
+				"foo": "bar",
+			},
+			scopeAttrs: map[string]string{
+				"foo": "bar", 
+			},
+			logAttrs: map[string]string{
+				"foo": "bar",
+			},
+			expectedCounts: map[string]int{
+				"bar": 1,
+			},
+		},
+		{
+			name:         "different attribute values are counted separately",
 			attributeKey: "foo",
 			resourceAttrs: map[string]string{
 				"foo": "bar",
@@ -122,7 +138,9 @@ func TestLogsServiceServer_Export(t *testing.T) {
 			resourceAttrs: map[string]string{
 				"other": "value",
 			},
-			expectedCounts: map[string]int{},
+			expectedCounts: map[string]int{
+				"unknown": 1,
+			},
 		},
 	}
 

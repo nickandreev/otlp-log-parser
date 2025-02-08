@@ -1,21 +1,21 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/nickandreev/otlp-log-parser/internal/aggregator"
+	"github.com/nickandreev/otlp-log-parser/internal/exporter"
 	"github.com/nickandreev/otlp-log-parser/internal/logservice"
 	"github.com/nickandreev/otlp-log-parser/internal/server"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/prometheus"
-	"go.opentelemetry.io/otel/metric"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.27.0"
@@ -53,9 +53,6 @@ func main() {
 	windowDuration := flag.Duration("window", 10*time.Second, "The duration of the aggregation window")
 	flag.Parse()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	// Initialize zap logger.
 	logger, err := zap.NewProduction()
 	if err != nil {
@@ -63,16 +60,20 @@ func main() {
 	}
 	defer logger.Sync()
 
+	// Handle graceful shutdown.
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
 	// Initialize OpenTelemetry metrics.
-	exporter, metricsHandler, err := setupOTel()
+	_, metricsHandler, err := setupOTel()
 	if err != nil {
 		logger.Fatal("Failed to setup OpenTelemetry metrics", zap.Error(err))
 	}
-	defer func() {
-		if err := exporter.Shutdown(context.Background()); err != nil {
-			logger.Error("Error shutting down OpenTelemetry", zap.Error(err))
-		}
-	}()
+
+	// Create a meter and an instrument for counting aggregated prints.
+	meter := otel.Meter("otlp-log-parser")
+
+	wg := &sync.WaitGroup{}
 
 	// Start Prometheus metrics server
 	go func() {
@@ -93,49 +94,33 @@ func main() {
 		logger.Fatal("Failed to create server", zap.Error(err))
 	}
 
-	// Create a meter and an instrument for counting aggregated prints.
-	meter := otel.Meter("otlp-log-parser")
-	printCounter, err := meter.Int64Counter(
-		"log_parser.aggregated_prints",
-		metric.WithDescription("Number of times aggregated values printed"),
-		metric.WithUnit("1"),
-	)
-
+	// Create and start log exporter.
+	logExporter, err := exporter.NewLogExporter(agg, *windowDuration, logger, meter)
 	if err != nil {
-		logger.Fatal("Failed to create print counter", zap.Error(err))
+		logger.Fatal("Failed to create log exporter", zap.Error(err))
 	}
-
-	// Start periodic printing of aggregated values.
+	wg.Add(1)
 	go func() {
-		ticker := time.NewTicker(*windowDuration)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				snapshot := agg.SnapshotAndReset()
-				logger.Info("aggregated values",
-					zap.String("attribute", *attributeKey),
-					zap.Any("values", snapshot))
-				printCounter.Add(ctx, 1)
-			}
+		defer wg.Done()
+		if err := logExporter.Start(); err != nil {
+			logger.Error("Failed to start log exporter", zap.Error(err))
 		}
 	}()
 
-	// Handle graceful shutdown.
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
 	// Start server in a separate goroutine.
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		if err := srv.Start(); err != nil {
 			logger.Error("Server error", zap.Error(err))
-			cancel()
 		}
 	}()
 
 	<-sigChan
-	logger.Info("Shutting down gracefully...")
+	logger.Info("Shutting down server...")
 	srv.Stop()
+	logger.Info("Shutting down log exporter...")
+	logExporter.Stop()
+
+	logger.Info("Shutdown complete")
 }
